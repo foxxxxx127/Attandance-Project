@@ -19,6 +19,27 @@ def index():
 
 ############################################################
 #员工终端接口
+
+
+############################################################
+#员工登录接口
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    employee_id = data.get('employee_id')
+    password = data.get('password')
+
+    # 根据 employee_id 查找员工
+    employee = Employee.query.filter_by(employee_id=employee_id).first()
+
+    if not employee:
+        return jsonify({'message': '员工编号不存在'}), 404
+    
+    # 校验密码
+    if not check_password_hash(employee.password, password):
+        return jsonify({'message': '密码错误'}), 401
+    
+    return jsonify({'message': '登录成功'}), 200
 ############################################################
 #员工信息填写接口
 
@@ -38,6 +59,10 @@ def update_profile():
    
     db.session.commit()
     return jsonify({"message": "个人信息更新成功"})
+
+
+#############################################################
+#员工查看个人信息接口
 
 #############################################################
 # 员工提交打卡记录接口
@@ -102,47 +127,54 @@ def submit_leave_request():
 
     return jsonify({'message': '请假申请已提交'})
 
+############################################################
+#员工申请外勤
 
+############################################################
+#员工申请补卡
 
 
 ############################################################
 #管理员终端接口
 #############################################################
 # 管理端添加员工接口
-# POST请求，接收JSON数据，添加员工信息到数据库
+# 添加员工接口
 @app.route('/add_employee', methods=['POST'])
 def add_employee():
     data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
+    
+    # 获取请求中的数据
     name = data.get('name')
     employee_id = data.get('employee_id')
     phone = data.get('phone')
     position = data.get('position')
     department = data.get('department')
-    role = data.get('role', '员工')
-
-    # 判断是否重复
-    if Employee.query.filter_by(username=username).first():
-        return jsonify({'message': '用户名已存在'}), 400
+    role = data.get('role', '员工')  # 默认角色为员工
+    
+    # 判断是否有重复的员工编号
     if Employee.query.filter_by(employee_id=employee_id).first():
         return jsonify({'message': '员工编号已存在'}), 400
+    
+    # 设置默认密码为 '123456' 并加密
+    hashed_password = generate_password_hash('123456')
 
-    hashed_password = generate_password_hash(password)
+    # 创建新员工实例
     new_employee = Employee(
-        username=username,
-        password=hashed_password,
-        name=name,
         employee_id=employee_id,
+        name=name,
         phone=phone,
         position=position,
         department=department,
-        role=role
+        role=role,
+        password=hashed_password
     )
+    
+    # 将新员工添加到数据库
     db.session.add(new_employee)
     db.session.commit()
 
     return jsonify({'message': '员工添加成功'}), 201
+
 ###############################################################
 # 管理员查看员工打卡信息接口
 @app.route('/admin/attendance', methods=['GET'])
