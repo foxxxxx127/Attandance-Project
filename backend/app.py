@@ -2,9 +2,9 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask import request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash 
-from datetime import datetime
-from model import db, Employee, Attendance, LeaveRequest
-
+from datetime import datetime, timedelta
+from model import db, Employee, Attendance, LeaveRequest, OutingRequest, MakeupCardRequest, AttendanceSettings
+from apscheduler.schedulers.background import BackgroundScheduler
 ############################################################
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///attandance.db'  # 数据库文件名
@@ -19,8 +19,6 @@ def index():
 
 ############################################################
 #员工终端接口
-
-
 ############################################################
 #员工登录接口
 @app.route('/login', methods=['POST'])
@@ -46,9 +44,9 @@ def login():
 @app.route('/update_profile', methods=['POST'])
 def update_profile():
     data = request.get_json()
-    username = data.get('username')  # 前端提供用户名作为身份识别
+    employee_id = data.get('employee_id')  # 前端提供作为身份识别
 
-    employee = Employee.query.filter_by(username=username).first()
+    employee = Employee.query.filter_by(employee_id=employee_id).first()
     if not employee:
         return jsonify({"error": "用户不存在"}), 404
 
@@ -56,32 +54,113 @@ def update_profile():
     employee.name = data.get('name', employee.name)
     employee.phone = data.get('phone', employee.phone)
     employee.email = data.get('email', employee.email)
+
    
     db.session.commit()
     return jsonify({"message": "个人信息更新成功"})
+#############################################################
+#员工修改密码接口
+@app.route('/change_password', methods=['POST'])
+def change_password():
+    data = request.get_json()
+    employee_id = data.get('employee_id')
+    old_password = data.get('old_password')
+    new_password = data.get('new_password')
 
+    if not all([employee_id, old_password, new_password]):
+        return jsonify({"error": "参数不完整"}), 400
+
+    employee = Employee.query.filter_by(employee_id=employee_id).first()
+    if not employee:
+        return jsonify({"error": "用户不存在"}), 404
+
+    if not check_password_hash(employee.password, old_password):
+        return jsonify({"error": "原密码错误"}), 401
+
+    employee.password = generate_password_hash(new_password)
+    db.session.commit()
+
+    return jsonify({"message": "密码修改成功"}), 200
 
 #############################################################
 #员工查看个人信息接口
 
+@app.route('/get_profile', methods=['GET'])
+def get_profile():
+    employee_id = request.args.get('employee_id')  # 从查询参数中获取 employee_id
+
+    if not employee_id:
+        return jsonify({"error": "缺少 employee_id 参数"}), 400
+
+    employee = Employee.query.filter_by(employee_id=employee_id).first()
+    if not employee:
+        return jsonify({"error": "用户不存在"}), 404
+
+    result = {
+        "employee_id": employee.employee_id,
+        "name": employee.name,
+        "gender": employee.gender,
+        "phone": employee.phone,
+        "email": employee.email,
+        "position": employee.position,
+        "department": employee.department,
+        "role": employee.role,
+        "join_date": employee.join_date.strftime('%Y-%m-%d') if employee.join_date else None
+    }
+
+    return jsonify(result), 200
+
 #############################################################
 # 员工提交打卡记录接口
-@app.route('/attendance', methods=['POST'])
-def add_attendance():
+@app.route('/employee/clock_in', methods=['POST'])
+def clock_in():
     data = request.get_json()
-    try:
-        new_record = Attendance(
-            employee_id=data['employee_id'],
-            date=datetime.strptime(data['date'], '%Y-%m-%d').date(),
-            time=datetime.strptime(data['time'], '%H:%M:%S').time(),
-            type=data['type'],
-            status=data['status']
+    employee_id = data.get('employee_id')
+    clock_in_time = datetime.strptime(data.get('time'), '%H:%M:%S').time()
+    
+    # 设定上班时间（可以存储在数据库中，假设为9:00:00）
+    work_start_time = datetime.strptime('09:00:00', '%H:%M:%S').time()
+    
+    # 获取今天的日期
+    today = datetime.today().date()
+    
+    # 查找是否有请假记录
+    leave = LeaveRequest.query.filter_by(
+        employee_id=employee_id,
+        start_date__lte=today,
+        end_date__gte=today,
+        status='已批准'
+    ).first()
+    
+    # 如果有请假，记录为“请假”
+    if leave:
+        new_attendance = Attendance(
+            employee_id=employee_id,
+            date=today,
+            time=clock_in_time,
+            type='打卡',
+            status='请假'
         )
-        db.session.add(new_record)
-        db.session.commit()
-        return jsonify({"message": "打卡记录添加成功"}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
+    else:
+        # 判断是否迟到
+        if clock_in_time > work_start_time:
+            status = '迟到'
+        else:
+            status = '正常'
+        
+        # 记录考勤
+        new_attendance = Attendance(
+            employee_id=employee_id,
+            date=today,
+            time=clock_in_time,
+            type='打卡',
+            status=status
+        )
+    
+    db.session.add(new_attendance)
+    db.session.commit()
+
+    return jsonify({'message': '打卡成功'}), 200
 
 ##############################################################
 # 员工查询打卡记录接口
@@ -129,10 +208,54 @@ def submit_leave_request():
 
 ############################################################
 #员工申请外勤
+@app.route('/employee/outingRequest', methods=['POST'])
+def submit_outing_request():
+    data = request.get_json()
 
+    employee_id = data.get('employee_id')
+    date = datetime.strptime(data.get('date'), '%Y-%m-%d').date()
+    start_time = datetime.strptime(data.get('start_time'), '%H:%M:%S').time()
+    end_time = datetime.strptime(data.get('end_time'), '%H:%M:%S').time()
+    reason = data.get('reason', '')
+
+    outing = OutingRequest(
+        employee_id=employee_id,
+        date=date,
+        start_time=start_time,
+        end_time=end_time,
+        reason=reason,
+        status='待审批'
+    )
+
+    db.session.add(outing)
+    db.session.commit()
+
+    return jsonify({'message': '外勤申请已提交'})
 
 ############################################################
 #员工申请补卡
+@app.route('/employee/makeupCardRequest', methods=['POST'])
+def submit_makeup_card_request():
+    data = request.get_json()
+
+    employee_id = data.get('employee_id')
+    date = datetime.strptime(data.get('date'), '%Y-%m-%d').date()
+    time = datetime.strptime(data.get('time'), '%H:%M:%S').time()
+    reason = data.get('reason', '')
+
+    request_entry = MakeupCardRequest(
+        employee_id=employee_id,
+        date=date,
+        time=time,
+        reason=reason,
+        status='待审批'
+    )
+
+    db.session.add(request_entry)
+    db.session.commit()
+
+    return jsonify({'message': '补卡申请已提交'})
+
 
 
 ############################################################
@@ -209,7 +332,7 @@ def get_all_attendance():
     
     return jsonify(result)
 ##############################################################
-# 管理员审批请假接口
+# 管理员审批员工请假记录接口
 @app.route('/admin/leave/<int:leave_id>', methods=['POST'])
 def update_leave_status(leave_id):
     data = request.get_json()
@@ -223,19 +346,162 @@ def update_leave_status(leave_id):
         return jsonify({'message': '请假记录不存在'}), 404
 
     leave.status = status
+
+    if status == '已批准':
+        # 审批通过后为每个请假日期添加或更新考勤记录
+        current_date = leave.start_date
+        while current_date <= leave.end_date:
+            attendance = Attendance.query.filter_by(
+                employee_id=leave.employee_id,
+                date=current_date
+            ).first()
+
+            if attendance:
+                attendance.status = '请假'
+                attendance.type = '系统'
+            else:
+                new_attendance = Attendance(
+                    employee_id=leave.employee_id,
+                    date=current_date,
+                    time=datetime.strptime('00:00:00', '%H:%M:%S').time(),
+                    status='请假',
+                    type='系统'
+                )
+                db.session.add(new_attendance)
+            current_date += timedelta(days=1)
+
     db.session.commit()
     return jsonify({'message': f'请假状态已更新为：{status}'}), 200
 
 ###############################################################
 # 管理员审批员工外勤接口
+@app.route('/admin/outing/approve/<int:outing_id>', methods=['POST'])
+def approve_outing_request(outing_id):
+    data = request.get_json()
+    status = data.get('status')  # 应为 '已批准' 或 '已拒绝'
+
+    # 检查状态是否有效
+    if status not in ['已批准', '已拒绝']:
+        return jsonify({'message': '无效的状态，应为 "已批准" 或 "已拒绝"'}), 400
+
+    # 查找外勤申请记录
+    outing = OutingRequest.query.get(outing_id)
+    if not outing:
+        return jsonify({'message': '外勤申请记录不存在'}), 404
+
+    # 更新状态
+    outing.status = status
+    db.session.commit()
+
+    return jsonify({'message': f'外勤申请状态已更新为：{status}'}), 200
+
 
 ###############################################################
 #管理员审批员工补卡接口
+@app.route('/admin/makeupCardRequest/<int:request_id>', methods=['POST'])
+def approve_makeup_card_request(request_id):
+    data = request.get_json()
+    status = data.get('status')  # '已批准' 或 '已拒绝'
+
+    # 验证状态是否合法
+    if status not in ['已批准', '已拒绝']:
+        return jsonify({'message': '无效的状态，应为 "已批准" 或 "已拒绝"'}), 400
+
+    # 查找补卡申请
+    request_entry = MakeupCardRequest.query.get(request_id)
+    if not request_entry:
+        return jsonify({'message': '补卡申请不存在'}), 404
+
+    # 更新申请状态
+    request_entry.status = status
+    db.session.commit()
+
+    return jsonify({'message': f'补卡申请已更新为：{status}'}), 200
 
 
 ###############################################################
-# 管理员更改员工打卡方式接口
+@app.route('/admin/employee/clock_in_settings/<int:employee_id>', methods=['POST'])
+def update_employee_clock_in_settings(employee_id):
+    data = request.get_json()
 
+    clock_in_method = data.get('clock_in_method')  # 打卡方式: '人脸'、'地点'、'混合'
+    clock_in_time = data.get('clock_in_time')  # 打卡时间
+    clock_in_location = data.get('clock_in_location')  # 打卡地点
+
+    # 校验打卡方式是否合法
+    if clock_in_method not in ['人脸', '地点', '混合']:
+        return jsonify({'message': '无效的打卡方式，必须是 “人脸”、“地点” 或 “混合”'}), 400
+
+    # 查找该员工的打卡设置
+    employee_settings = AttendanceSettings.query.filter_by(employee_id=employee_id).first()
+
+    if not employee_settings:
+        return jsonify({'message': '该员工没有设置打卡方式'}), 404
+
+    # 更新打卡方式
+    employee_settings.clock_in_method = clock_in_method
+    
+    if clock_in_time:
+        try:
+            # 将打卡时间字符串转换为时间类型
+            employee_settings.clock_in_time = datetime.strptime(clock_in_time, '%H:%M:%S').time()
+        except ValueError:
+            return jsonify({'message': '无效的打卡时间格式'}), 400
+
+    if clock_in_location:
+        employee_settings.clock_in_location = clock_in_location
+    
+    db.session.commit()
+
+    return jsonify({'message': '员工打卡方式更新成功'}), 200
+
+###############################################################
+#考勤系统定时任务
+def check_attendance():
+    today = datetime.today().date()
+    employees = Employee.query.all()
+
+    for employee in employees:
+        # 检查是否有当天的考勤记录
+        attendance = Attendance.query.filter_by(employee_id=employee.id, date=today).first()
+        
+        if not attendance:
+            # 如果没有考勤记录，检查是否有请假
+            leave = LeaveRequest.query.filter_by(
+                employee_id=employee.id,
+                start_date__lte=today,
+                end_date__gte=today,
+                status='已批准'
+            ).first()
+            
+            if leave:
+                # 如果有请假，记录为“请假”
+                new_attendance = Attendance(
+                    employee_id=employee.id,
+                    date=today,
+                    time=datetime.strptime('00:00:00', '%H:%M:%S').time(),  # 设置时间为00:00:00，表示全天请假
+                    type='系统',
+                    status='请假'
+                )
+                db.session.add(new_attendance)
+            else:
+                # 如果没有请假，记录为“缺勤”
+                new_attendance = Attendance(
+                    employee_id=employee.id,
+                    date=today,
+                    time=datetime.min.time(),  # 设置时间为最小时间值
+                    type='系统',
+                    status='缺勤'
+                )
+                db.session.add(new_attendance)
+        
+        # 提交数据库操作
+        db.session.commit()
+
+# 设置定时任务，使用APS调度器
+scheduler = BackgroundScheduler()
+scheduler.add_job(func=check_attendance, trigger="cron", hour=0, minute=0)  # 每天午夜0点执行
+scheduler.start()
 ###############################################################
 if __name__ == '__main__':
     with app.app_context():
