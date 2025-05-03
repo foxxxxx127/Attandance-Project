@@ -24,6 +24,9 @@ class Employee(db.Model):
     #关系定义
     attendances = db.relationship('Attendance', backref='employee', lazy=True)
     leave_requests = db.relationship('LeaveRequest', backref='employee', lazy=True)  
+    outing_requests = db.relationship('OutingRequest', backref='employee', lazy=True)
+    makeup_card_requests = db.relationship('MakeupCardRequest', backref='employee', lazy=True)
+
 ##############################################################
 # 定义一个考勤表
 class Attendance(db.Model):
@@ -50,3 +53,37 @@ class LeaveRequest(db.Model):
     reason = db.Column(db.String(255))
     status = db.Column(db.String(20), default='待审批')  # 或 '已批准'、'已拒绝'
 
+#############################################################
+class OutingRequest(db.Model):
+    __tablename__ = 'outing_requests'
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    start_time = db.Column(db.Time, nullable=False)
+    end_time = db.Column(db.Time, nullable=False)
+    reason = db.Column(db.String(255))
+    status = db.Column(db.String(20), default='待审批')  # '待审批'、'已批准'、'已拒绝'
+
+##############################################################
+class MakeupCardRequest(db.Model):
+    __tablename__ = 'makeup_card_requests'
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
+    date = db.Column(db.Date, nullable=False)  # 补卡日期
+    time = db.Column(db.Time, nullable=False)  # 申请补卡的时间点
+    reason = db.Column(db.String(255))         # 补卡原因
+    status = db.Column(db.String(20), default='待审批')  # 状态：待审批/已批准/已拒绝
+
+#################################################################
+class AttendanceSettings(db.Model):
+    __tablename__ = 'attendance_settings'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
+    clock_in_method = db.Column(db.String(20))  # 打卡方式: '人脸'、'地点'、'混合'
+    clock_in_time = db.Column(db.Time)  # 打卡时间
+    clock_in_location = db.Column(db.String(255))  # 打卡地点
+
+    

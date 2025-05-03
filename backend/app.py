@@ -5,6 +5,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 from model import db, Employee, Attendance, LeaveRequest, OutingRequest, MakeupCardRequest, AttendanceSettings
 from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy import and_
 ############################################################
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///attandance.db'  # 数据库文件名
@@ -40,7 +41,6 @@ def login():
     return jsonify({'message': '登录成功'}), 200
 ############################################################
 #员工信息填写接口
-
 @app.route('/update_profile', methods=['POST'])
 def update_profile():
     data = request.get_json()
@@ -52,12 +52,29 @@ def update_profile():
 
     # 更新信息（哪个字段有就更新哪个）
     employee.name = data.get('name', employee.name)
+    employee.gender = data.get('gender', employee.gender)
     employee.phone = data.get('phone', employee.phone)
     employee.email = data.get('email', employee.email)
+    employee.position = data.get('position', employee.position)
+    employee.department = data.get('department', employee.department)
+    employee.role = data.get('role', employee.role)
 
-   
     db.session.commit()
-    return jsonify({"message": "个人信息更新成功"})
+
+    # 返回更新后的信息
+    result = {
+        "employee_id": employee.employee_id,
+        "name": employee.name,
+        "gender": employee.gender,
+        "phone": employee.phone,
+        "email": employee.email,
+        "position": employee.position,
+        "department": employee.department,
+        "role": employee.role,
+        "join_date": employee.join_date.strftime('%Y-%m-%d') if employee.join_date else None
+    }
+
+    return jsonify({"message": "个人信息更新成功", "updated_info": result}), 200
 #############################################################
 #员工修改密码接口
 @app.route('/change_password', methods=['POST'])
@@ -125,11 +142,13 @@ def clock_in():
     today = datetime.today().date()
     
     # 查找是否有请假记录
-    leave = LeaveRequest.query.filter_by(
-        employee_id=employee_id,
-        start_date__lte=today,
-        end_date__gte=today,
-        status='已批准'
+    leave = LeaveRequest.query.filter(
+    and_(
+        LeaveRequest.employee_id == employee_id,
+        LeaveRequest.start_date <= today,
+        LeaveRequest.end_date >= today,
+        LeaveRequest.status == '已批准'
+        )
     ).first()
     
     # 如果有请假，记录为“请假”
@@ -164,7 +183,7 @@ def clock_in():
 
 ##############################################################
 # 员工查询打卡记录接口
-@app.route('/attendance/<int:employee_id>', methods=['GET'])
+@app.route('/attendance/<employee_id>', methods=['GET'])
 def get_attendance(employee_id):
     records = Attendance.query.filter_by(employee_id=employee_id).all()
     if not records:
@@ -304,7 +323,7 @@ def add_employee():
 @app.route('/admin/attendance', methods=['GET'])
 def get_all_attendance():
     # 获取查询参数
-    employee_id = request.args.get('employee_id', type=int)  # 筛选员工ID
+    employee_id = request.args.get('employee_id')  # 筛选员工ID
     date = request.args.get('date')  # 筛选日期
     page = request.args.get('page', 1, type=int)  # 页码，默认为1
     per_page = request.args.get('per_page', 10, type=int)  # 每页记录数，默认为10
@@ -318,7 +337,7 @@ def get_all_attendance():
         query = query.filter(Attendance.date == date)  # 按日期筛选
 
     # 执行查询并分页
-    records = query.paginate(page, per_page, False).items
+    records = query.paginate(page=page, per_page=per_page, error_out=False).items
     
     result = []
     for r in records:
@@ -331,6 +350,25 @@ def get_all_attendance():
         })
     
     return jsonify(result)
+
+################################################################
+# 管理员查看员工请假记录接口
+# 查询所有请假记录接口
+@app.route('/admin/leave', methods=['GET'])
+def get_all_leaves():
+    leaves = LeaveRequest.query.all()
+    result = []
+    for leave in leaves:
+        result.append({
+            "id": leave.id,
+            "employee_id": leave.employee_id,
+            "start_date": leave.start_date.strftime('%Y-%m-%d'),
+            "end_date": leave.end_date.strftime('%Y-%m-%d'),
+            "leave_type": leave.leave_type,
+            "reason": leave.reason,
+            "status": leave.status
+        })
+    return jsonify(result), 200
 ##############################################################
 # 管理员审批员工请假记录接口
 @app.route('/admin/leave/<int:leave_id>', methods=['POST'])
