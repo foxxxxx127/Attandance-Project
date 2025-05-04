@@ -1,17 +1,17 @@
 import cv2
 import numpy as np
 from typing import Optional
-from app.config.settings import settings
+import setting
 
 class FaceRecognitionService:
     def __init__(self):
         self.detector = cv2.FaceDetectorYN_create(
-            settings.FACE_DETECTOR_PATH, 
+            setting.FACE_DETECTOR_PATH, 
             "", 
             (320, 320)
         )
         self.recognizer = cv2.FaceRecognizerSF_create(
-            settings.FACE_MODEL_PATH, 
+            setting.FACE_MODEL_PATH, 
             ""
         )
 
