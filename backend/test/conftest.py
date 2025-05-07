@@ -2,12 +2,12 @@
 import pytest
 import cv2
 import numpy as np
-from src.face_recognition_service import FaceRecognitionService
+from scr.face_recognition_service import FaceRecognitionService
 
 @pytest.fixture(scope="session")
 def recognition_service():
     """全局共享的人脸识别服务实例"""
-    return face_recognition_service()
+    return FaceRecognitionService()
 
 @pytest.fixture
 def sample_image():
