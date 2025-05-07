@@ -1,5 +1,5 @@
 from geopy.distance import geodesic
-from setting import setting
+import setting
 
 class LocationService:
     @staticmethod

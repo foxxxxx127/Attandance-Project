@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 from typing import Optional
-import setting
+from scr import setting
 
 class FaceRecognitionService:
     def __init__(self):

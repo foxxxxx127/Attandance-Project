@@ -1,14 +1,14 @@
 import cv2
 import numpy as np
 import pytest
-import Face_recognition_service
-import setting
+from scr import face_recognition_service
+from scr import setting
 
 class TestFaceRecognition:
     @pytest.fixture(autouse=True)
     def setup(self):
         """初始化测试环境"""
-        self.service = Face_recognition_service()
+        self.service = face_recognition_service()
         self.valid_image = cv2.imread("tests/data/test_face.jpg")
         _, self.img_bytes = cv2.imencode(".jpg", self.valid_image)
     
