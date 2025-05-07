@@ -1,0 +1,17 @@
+# 位置：项目根目录/requirements-test.txt
+-r requirements.txt  # 继承主依赖
+
+# 测试框架
+pytest==7.4.0
+pytest-cov==4.1.0
+pytest-xdist==3.3.1  # 并行测试
+
+# 测试工具
+codecov==2.1.13       # 覆盖率上传
+requests==2.31.0      # 用于HTTP测试（如有需要）
+
+# OpenCV测试依赖
+opencv-python-headless==4.8.0.76  # 无GUI版本的OpenCV
+
+# 测试数据生成库（可选）
+factory-boy==3.3.0    # 测试数据工厂
