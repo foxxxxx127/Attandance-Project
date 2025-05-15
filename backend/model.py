@@ -19,6 +19,7 @@ class Employee(db.Model):
     role = db.Column(db.String(10))           # 员工/管理员
     email = db.Column(db.String(100))         # 邮箱
     join_date = db.Column(db.Date)            # 入职日期
+    photo = db.Column(db.String(255))  # 员工照片路径或 URL
 
 
     #关系定义
@@ -49,33 +50,32 @@ class LeaveRequest(db.Model):
     employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
     start_date = db.Column(db.Date, nullable=False)
     end_date = db.Column(db.Date, nullable=False)
-    leave_type = db.Column(db.String(20), nullable=False)  # 如：病假、事假
     reason = db.Column(db.String(255))
     status = db.Column(db.String(20), default='待审批')  # 或 '已批准'、'已拒绝'
 
 #############################################################
+#外出申请表
 class OutingRequest(db.Model):
     __tablename__ = 'outing_requests'
-
-    id = db.Column(db.Integer, primary_key=True)
-    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
-    date = db.Column(db.Date, nullable=False)
-    start_time = db.Column(db.Time, nullable=False)
-    end_time = db.Column(db.Time, nullable=False)
-    reason = db.Column(db.String(255))
-    status = db.Column(db.String(20), default='待审批')  # '待审批'、'已批准'、'已拒绝'
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)  # 设置外键
+    start_date = db.Column(db.Date, nullable=False)  # 外勤开始日期
+    end_date = db.Column(db.Date, nullable=False)    # 外勤结束日期
+    location = db.Column(db.String(255), nullable=False)  # 外勤地点
+    reason = db.Column(db.String(255), nullable=False)    # 外勤原因
+    status = db.Column(db.String(20), default='待审批')    # 状态
 
 ##############################################################
+#补卡申请表
 class MakeupCardRequest(db.Model):
     __tablename__ = 'makeup_card_requests'
-
-    id = db.Column(db.Integer, primary_key=True)
-    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
-    date = db.Column(db.Date, nullable=False)  # 补卡日期
-    time = db.Column(db.Time, nullable=False)  # 申请补卡的时间点
-    reason = db.Column(db.String(255))         # 补卡原因
-    status = db.Column(db.String(20), default='待审批')  # 状态：待审批/已批准/已拒绝
-
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)  # 设置外键
+    start_date = db.Column(db.Date, nullable=False)  # 补卡开始日期
+    end_date = db.Column(db.Date, nullable=False)    # 补卡结束日期
+    reason = db.Column(db.String(255), nullable=False)  # 补卡原因
+    status = db.Column(db.String(20), default='待审批')  # 状态
+    
 #################################################################
 class AttendanceSettings(db.Model):
     __tablename__ = 'attendance_settings'

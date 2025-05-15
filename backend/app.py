@@ -6,20 +6,72 @@ from datetime import datetime, timedelta
 from model import db, Employee, Attendance, LeaveRequest, OutingRequest, MakeupCardRequest, AttendanceSettings
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import and_
+from flask_cors import CORS
+import os
+from werkzeug.utils import secure_filename
+from scr.face_recognition_service import compare_faces
+import uuid
+from flask import send_from_directory
 ############################################################
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///attandance.db'  # 数据库文件名
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False  # 关闭警告
 db.init_app(app)
-
+CORS(app)  # 启用跨域支持
 ############################################################
 #根目录
 @app.route('/')
 def index():
     return "数据库连接成功"
-
 ############################################################
 #员工终端接口
+#############################################################
+#员工注册接口
+@app.route('/register', methods=['POST'])
+def register():
+    """
+    员工注册接口
+    """
+    data = request.get_json()
+
+    # 获取注册信息
+    employee_id = data.get('employee_id')
+    password = data.get('password')
+    name = data.get('name')
+    phone = data.get('phone')
+    department = data.get('department')
+    role = data.get('role', '员工')  # 默认角色为员工
+    email = data.get('email')
+    join_date = data.get('join_date')
+
+    if not all([employee_id, password, name, phone, department, email]):
+        return jsonify({"message": "缺少必填字段"}), 400
+    
+    # 检查员工编号是否已存在
+    existing_employee = Employee.query.filter_by(employee_id=employee_id).first()
+    if existing_employee:
+        return jsonify({"message": "员工编号已存在"}), 400
+
+    # 加密密码
+    hashed_password = generate_password_hash(password)
+
+    # 创建新员工记录
+    new_employee = Employee(
+        employee_id=employee_id,
+        password=hashed_password,
+        name=name,
+        phone=phone,
+        department=department,
+        role=role,
+        email=email,
+        join_date=datetime.strptime(join_date, '%Y-%m-%d').date() if join_date else None
+    )
+
+    # 保存到数据库
+    db.session.add(new_employee)
+    db.session.commit()
+
+    return jsonify({"message": "注册成功"}), 201
 ############################################################
 #员工登录接口
 @app.route('/login', methods=['POST'])
@@ -58,6 +110,7 @@ def update_profile():
     employee.position = data.get('position', employee.position)
     employee.department = data.get('department', employee.department)
     employee.role = data.get('role', employee.role)
+    employee.photo = data.get('photo')  # 更新照片路径或 URL
 
     db.session.commit()
 
@@ -122,11 +175,46 @@ def get_profile():
         "position": employee.position,
         "department": employee.department,
         "role": employee.role,
-        "join_date": employee.join_date.strftime('%Y-%m-%d') if employee.join_date else None
+        "join_date": employee.join_date.strftime('%Y-%m-%d') if employee.join_date else None,
+        "photo": employee.photo  # 返回照片路径或 URL
     }
 
     return jsonify(result), 200
+#############################################################
+# 配置上传文件夹
+UPLOAD_FOLDER = 'uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+# 如果文件夹不存在，则创建
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+# 允许的文件扩展名
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# 静态文件服务，前端可通过 http://127.0.0.1:5000/uploads/xxx.jpg 访问
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+# 上传照片接口
+@app.route('/upload_photo', methods=['POST'])
+def upload_photo():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(save_path)
+        # 返回相对路径，前端拼接 http://127.0.0.1:5000 + url 即可访问
+        return jsonify({'url': f'/uploads/{filename}'})
+    return jsonify({'error': 'Invalid file type'}), 400
 #############################################################
 # 员工提交打卡记录接口
 @app.route('/employee/clock_in', methods=['POST'])
@@ -208,14 +296,12 @@ def submit_leave_request():
     employee_id = data.get('employee_id')
     start_date = datetime.strptime(data.get('start_date'), '%Y-%m-%d').date()
     end_date = datetime.strptime(data.get('end_date'), '%Y-%m-%d').date()
-    leave_type = data.get('leave_type')
     reason = data.get('reason', '')
 
     leave = LeaveRequest(
         employee_id=employee_id,
         start_date=start_date,
         end_date=end_date,
-        leave_type=leave_type,
         reason=reason,
         status='待审批'
     )
@@ -230,19 +316,18 @@ def submit_leave_request():
 @app.route('/employee/outingRequest', methods=['POST'])
 def submit_outing_request():
     data = request.get_json()
-
     employee_id = data.get('employee_id')
-    date = datetime.strptime(data.get('date'), '%Y-%m-%d').date()
-    start_time = datetime.strptime(data.get('start_time'), '%H:%M:%S').time()
-    end_time = datetime.strptime(data.get('end_time'), '%H:%M:%S').time()
+    start_date = datetime.strptime(data.get('start_date'), '%Y-%m-%d').date()
+    end_date = datetime.strptime(data.get('end_date'), '%Y-%m-%d').date()
+    location = data.get('location', '')
     reason = data.get('reason', '')
 
     outing = OutingRequest(
         employee_id=employee_id,
-        date=date,
-        start_time=start_time,
-        end_time=end_time,
+        start_date=start_date,
+        end_date=end_date,
         reason=reason,
+        location=location,
         status='待审批'
     )
 
@@ -258,14 +343,14 @@ def submit_makeup_card_request():
     data = request.get_json()
 
     employee_id = data.get('employee_id')
-    date = datetime.strptime(data.get('date'), '%Y-%m-%d').date()
-    time = datetime.strptime(data.get('time'), '%H:%M:%S').time()
+    start_date = datetime.strptime(data.get('start_date'), '%Y-%m-%d').date()
+    end_date = datetime.strptime(data.get('end_date'), '%Y-%m-%d').date()
     reason = data.get('reason', '')
 
     request_entry = MakeupCardRequest(
         employee_id=employee_id,
-        date=date,
-        time=time,
+        start_date=start_date,
+        end_date=end_date,
         reason=reason,
         status='待审批'
     )
@@ -274,9 +359,101 @@ def submit_makeup_card_request():
     db.session.commit()
 
     return jsonify({'message': '补卡申请已提交'})
+#############################################################
+@app.route('/employee/approval_records/<employee_id>', methods=['GET'])
+def get_approval_records(employee_id):
+    """
+    获取员工的审批记录，包括事件类型、审批结果和申请原因。
+    """
+    # 获取查询参数
+    event_type = request.args.get('type', '')  # 事件类型（leave, card, field）
+    page = int(request.args.get('page', 1))  # 当前页码
+    size = int(request.args.get('size', 10))  # 每页记录数
 
+    # 初始化查询结果
+    records = []
 
+    # 查询请假审批记录
+    if event_type in ('', 'leave'):
+        leave_records = LeaveRequest.query.filter_by(employee_id=employee_id).all()
+        for record in leave_records:
+            records.append({
+                "application_time": f"{record.start_date.strftime('%Y-%m-%d')} 至 {record.end_date.strftime('%Y-%m-%d')}",
+                "event_type": "请假审批",
+                "status": record.status,
+                "reason": record.reason  # 添加申请原因
+            })
 
+    # 查询补卡审批记录
+    if event_type in ('', 'card'):
+        card_records = MakeupCardRequest.query.filter_by(employee_id=employee_id).all()
+        for record in card_records:
+            records.append({
+                "application_time": f"{record.start_date.strftime('%Y-%m-%d')} 至 {record.end_date.strftime('%Y-%m-%d')}",
+                "event_type": "补卡审批",
+                "status": record.status,
+                "reason": record.reason  # 添加申请原因
+            })
+
+    # 查询外勤审批记录
+    if event_type in ('', 'field'):
+        field_records = OutingRequest.query.filter_by(employee_id=employee_id).all()
+        for record in field_records:
+            records.append({
+                "application_time": f"{record.start_date.strftime('%Y-%m-%d')} 至 {record.end_date.strftime('%Y-%m-%d')}",
+                "event_type": "外勤审批",
+                "status": record.status,
+                "reason": record.reason  # 添加申请原因
+            })
+
+    # 按申请时间排序
+    records.sort(key=lambda x: x['application_time'], reverse=True)
+
+    # 分页
+    total = len(records)
+    start = (page - 1) * size
+    end = start + size
+    paginated_records = records[start:end]
+
+    # 返回结果
+    return jsonify({
+        "code": 0,
+        "message": "审批记录获取成功",
+        "data": {
+            "records": paginated_records,
+            "total": total
+        }
+    }), 200
+#############################################################
+# 员工人脸识别接口
+@app.route('/api/face_recognition', methods=['POST'])
+def face_recognition_api():
+    """
+    前端上传两张图片，判断是否为同一个人
+    """
+    if 'image1' not in request.files or 'image2' not in request.files:
+        return jsonify({'code': 1, 'msg': '缺少图片'}), 400
+
+    image1 = request.files['image1']
+    image2 = request.files['image2']
+
+    # 临时保存图片
+    save_dir = 'temp_faces'
+    os.makedirs(save_dir, exist_ok=True)
+    path1 = os.path.join(save_dir, f"{uuid.uuid4().hex}_1.jpg")
+    path2 = os.path.join(save_dir, f"{uuid.uuid4().hex}_2.jpg")
+    image1.save(path1)
+    image2.save(path2)
+
+    try:
+        result = compare_faces(path1, path2)
+        os.remove(path1)
+        os.remove(path2)
+        return jsonify({'code': 0, 'result': bool(result)})
+    except Exception as e:
+        os.remove(path1)
+        os.remove(path2)
+        return jsonify({'code': 2, 'msg': str(e)}), 500
 ############################################################
 #管理员终端接口
 #############################################################
@@ -359,12 +536,14 @@ def get_all_leaves():
     leaves = LeaveRequest.query.all()
     result = []
     for leave in leaves:
+        # 根据 employee_id 查询 Employee 表获取 name
+        employee = Employee.query.filter_by(employee_id=leave.employee_id).first()
         result.append({
             "id": leave.id,
             "employee_id": leave.employee_id,
+            "applicant": employee.name if employee else "未知",  # 如果 employee 为 None，设置为 "未知"
             "start_date": leave.start_date.strftime('%Y-%m-%d'),
             "end_date": leave.end_date.strftime('%Y-%m-%d'),
-            "leave_type": leave.leave_type,
             "reason": leave.reason,
             "status": leave.status
         })
@@ -372,45 +551,21 @@ def get_all_leaves():
 ##############################################################
 # 管理员审批员工请假记录接口
 @app.route('/admin/leave/<int:leave_id>', methods=['POST'])
-def update_leave_status(leave_id):
+def approve_leave(leave_id):
     data = request.get_json()
-    status = data.get('status')  # 应为 '已批准' 或 '已拒绝'
+    status = data.get('status')
 
     if status not in ['已批准', '已拒绝']:
-        return jsonify({'message': '无效的状态，应为 "已批准" 或 "已拒绝"'}), 400
+        return jsonify({'error': '无效的审批状态'}), 400
 
-    leave = LeaveRequest.query.get(leave_id)
-    if not leave:
-        return jsonify({'message': '请假记录不存在'}), 404
+    leave_request = LeaveRequest.query.get(leave_id)
+    if not leave_request:
+        return jsonify({'error': '未找到对应的请假记录'}), 404
 
-    leave.status = status
-
-    if status == '已批准':
-        # 审批通过后为每个请假日期添加或更新考勤记录
-        current_date = leave.start_date
-        while current_date <= leave.end_date:
-            attendance = Attendance.query.filter_by(
-                employee_id=leave.employee_id,
-                date=current_date
-            ).first()
-
-            if attendance:
-                attendance.status = '请假'
-                attendance.type = '系统'
-            else:
-                new_attendance = Attendance(
-                    employee_id=leave.employee_id,
-                    date=current_date,
-                    time=datetime.strptime('00:00:00', '%H:%M:%S').time(),
-                    status='请假',
-                    type='系统'
-                )
-                db.session.add(new_attendance)
-            current_date += timedelta(days=1)
-
+    leave_request.status = status
     db.session.commit()
-    return jsonify({'message': f'请假状态已更新为：{status}'}), 200
 
+    return jsonify({'message': f'请假申请已{status}'}), 200
 ###############################################################
 # 管理员审批员工外勤接口
 @app.route('/admin/outing/approve/<int:outing_id>', methods=['POST'])
