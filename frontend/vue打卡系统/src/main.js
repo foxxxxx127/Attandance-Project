@@ -4,7 +4,7 @@ import router from './router'
 import axios from '@/utils/request.js'
 import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
-import '@/mock'
+//import '@/mock'
 import { createPersistedState } from 'pinia-persistedstate-plugin'
 import { createPinia } from 'pinia'
 const pinia=createPinia()

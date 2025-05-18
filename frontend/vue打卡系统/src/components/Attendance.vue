@@ -330,6 +330,7 @@ const captureImage = () => {
 
       if (response.data.code === 0 && response.data.result === true) {
         // 识别成功
+        ElMessage.success('人脸识别成功') // 新增：弹窗提示
         if (checkinRules.value.method === 'mixed') {
           startLocationCheck()
         } else {

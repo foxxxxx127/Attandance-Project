@@ -46,10 +46,10 @@
           :class="{ active: activeTab === 'login' }"
           @submit.prevent="handleLogin"
         >
-          <el-form-item label="员工编号" prop="employeeId">
+          <el-form-item label="账号" prop="employeeId">
             <el-input 
               v-model="loginForm.employeeId" 
-              placeholder="请输入员工编号"
+              placeholder="请输入账号"
             />
           </el-form-item>
           
@@ -261,6 +261,21 @@ const showRegister = () => {
 
 const handleLogin = async () => {
   try {
+        // 管理员登录（前端写死账号密码）
+    if (loginType.value === 'admin') {
+      if (
+        loginForm.employeeId === 'admin123' &&
+        loginForm.password === 'admin123'
+      ) {
+        localStorage.setItem('admin_id', loginForm.employeeId)
+        ElMessage.success('管理员登录成功')
+        router.push('/managermainmenu/releasecheckin')
+        return
+      } else {
+        ElMessage.error('管理员账号或密码错误')
+        return
+      }
+    }
     const response = await axios.post('http://127.0.0.1:5000/login', {
       employee_id: loginForm.employeeId, // 改为 employeeId
       password: loginForm.password

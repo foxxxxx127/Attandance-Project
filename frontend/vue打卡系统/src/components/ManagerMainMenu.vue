@@ -61,11 +61,7 @@
             </span>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item @click="EnterAdminCenter">
-                  个人中心
-                </el-dropdown-item>
-                <el-dropdown-item>系统设置</el-dropdown-item>
-                <el-dropdown-item divided>退出登录</el-dropdown-item>
+                <el-dropdown-item divided @click="logout">退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -131,9 +127,7 @@ watch(
   { immediate: true } // 立即执行以初始化 activeMenu
 )
 
-const EnterAdminCenter = async () => {
-  router.push('/managermainmenu/managerinfo')
-}
+
 const EnterFieldApproval = async () => {
   router.push('/managermainmenu/fieldworkapproval')
 }
@@ -148,6 +142,10 @@ const EnterLeaveApproval = async () => {
 }
 const EnterReissueApproval = async () => {
   router.push('/managermainmenu/cardapproval')
+}
+const logout = () => {
+  localStorage.removeItem('admin_id')
+  router.push('/')
 }
 </script>
 

@@ -105,11 +105,11 @@
         <el-form-item label="上传照片">
           <el-upload
             action="http://127.0.0.1:5000/upload_photo"
-            list-type="text"
+            :data="{ employee_id: employeeId }"
+            :show-file-list="false"
             :on-success="handlePhotoUpload"
             :on-error="handleUploadError"
             :before-upload="beforeUpload"
-            :show-file-list="false"
           >
             <el-button type="primary">点击上传</el-button>
           </el-upload>
@@ -130,7 +130,7 @@ import { ref, reactive, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { OfficeBuilding, Briefcase } from '@element-plus/icons-vue'
-
+const employeeId = localStorage.getItem('employee_id') || ''
 // 员工数据对象
 const employeeData = ref({
   name: '', // 姓名
@@ -194,11 +194,17 @@ const fetchEmployeeData = async () => {
 }
 const handlePhotoUpload = (response) => {
   if (response.url) {
-    editForm.photo = response.url; // 假设后端返回上传后的照片 URL
+    editForm.photo = response.url; // 保存相对路径
+    // 立即更新头像显示
+    employeeData.value.photo = response.url;
     ElMessage.success('照片上传成功');
   } else {
     ElMessage.error('照片上传失败');
   }
+};
+
+const handleUploadError = () => {
+  ElMessage.error('照片上传失败，请重试');
 };
 
 const beforeUpload = (file) => {

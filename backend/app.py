@@ -203,13 +203,19 @@ def uploaded_file(filename):
 # 上传照片接口
 @app.route('/upload_photo', methods=['POST'])
 def upload_photo():
+    employee_id = request.form.get('employee_id')
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
     if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
+        # 用员工ID命名，否则用原文件名
+        if employee_id:
+            ext = file.filename.rsplit('.', 1)[1].lower()
+            filename = f"{employee_id}.{ext}"
+        else:
+            filename = secure_filename(file.filename)
         save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(save_path)
         # 返回相对路径，前端拼接 http://127.0.0.1:5000 + url 即可访问
@@ -428,32 +434,27 @@ def get_approval_records(employee_id):
 # 员工人脸识别接口
 @app.route('/api/face_recognition', methods=['POST'])
 def face_recognition_api():
-    """
-    前端上传两张图片，判断是否为同一个人
-    """
-    if 'image1' not in request.files or 'image2' not in request.files:
-        return jsonify({'code': 1, 'msg': '缺少图片'}), 400
+    employee_id = request.form.get('employee_id')
+    file = request.files.get('face_image')
+    if not employee_id or not file:
+        return jsonify({'code': 1, 'msg': '缺少参数'}), 400
 
-    image1 = request.files['image1']
-    image2 = request.files['image2']
+    # 假设注册照路径为 uploads/{employee_id}.jpg
+    reg_photo_path = os.path.join('uploads', f'{employee_id}.jpg')
+    if not os.path.exists(reg_photo_path):
+        return jsonify({'code': 2, 'msg': '未找到注册照片'}), 404
 
-    # 临时保存图片
-    save_dir = 'temp_faces'
-    os.makedirs(save_dir, exist_ok=True)
-    path1 = os.path.join(save_dir, f"{uuid.uuid4().hex}_1.jpg")
-    path2 = os.path.join(save_dir, f"{uuid.uuid4().hex}_2.jpg")
-    image1.save(path1)
-    image2.save(path2)
+    # 保存临时上传图片
+    temp_path = os.path.join('uploads', f'temp_{employee_id}.jpg')
+    file.save(temp_path)
 
     try:
-        result = compare_faces(path1, path2)
-        os.remove(path1)
-        os.remove(path2)
+        result = compare_faces(reg_photo_path, temp_path)
+        os.remove(temp_path)
         return jsonify({'code': 0, 'result': bool(result)})
     except Exception as e:
-        os.remove(path1)
-        os.remove(path2)
-        return jsonify({'code': 2, 'msg': str(e)}), 500
+        os.remove(temp_path)
+        return jsonify({'code': 3, 'msg': str(e)}), 500
 ############################################################
 #管理员终端接口
 #############################################################
